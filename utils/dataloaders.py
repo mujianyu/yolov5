@@ -605,11 +605,11 @@ class LoadImagesAndLabels(Dataset):
                         # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
                     raise FileNotFoundError(f"{prefix}{p} does not exist")
-            self.imir_files = sorted(x.replace("/", os.sep) for x in f if x.split(".")[-1].lower() in IMG_FORMATS)
+            self.irim_files = sorted(x.replace("/", os.sep) for x in f if x.split(".")[-1].lower() in IMG_FORMATS)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
-            assert self.imir_files, f"{prefix}No images found"
+            assert self.irim_files, f"{prefix}No images found"
         except Exception as e:
-            raise Exception(f"{prefix}Error loading data from {path}: {e}\n{HELP_URL}") from e
+            raise Exception(f"{prefix}Error loading data from {path2}: {e}\n{HELP_URL}") from e
         
 
         # Check RGB cache
@@ -623,16 +623,17 @@ class LoadImagesAndLabels(Dataset):
             cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
 
         # Check IR cache
-        self.labelir_files = img2label_paths(self.imir_files)  # labels
-        cacheir_path = (p if p.is_file() else Path(self.labelir_files[0]).parent).with_suffix(".cache")
+        self.irlabel_files = img2label_paths(self.irim_files)  # labels
+        ircache_path = (p if p.is_file() else Path(self.irlabel_files[0]).parent).with_suffix(".cache")
         try:
-            cacheir, exists = np.load(cacheir_path, allow_pickle=True).item(), True  # load dict
-            assert cacheir["version"] == self.cache_version  # matches current version
-            assert cacheir["hash"] == get_hash(self.label_files + self.im_files)  # identical hash
+            ircache, exists = np.load(ircache_path, allow_pickle=True).item(), True  # load dict
+            assert ircache["version"] == self.cache_version  # matches current version
+            assert ircache["hash"] == get_hash(self.irlabel_files + self.irim_files)  # identical hash
         except Exception:
-            cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
+            ircache, exists = self.ircache_labels(ircache_path, prefix), False  # run cache ops
         
-        # Display cache
+
+        # Display RGB cache
         nf, nm, ne, nc, n = cache.pop("results")  # found, missing, empty, corrupt, total
         if exists and LOCAL_RANK in {-1, 0}:
             d = f"Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
@@ -641,7 +642,16 @@ class LoadImagesAndLabels(Dataset):
                 LOGGER.info("\n".join(cache["msgs"]))  # display warnings
         assert nf > 0 or not augment, f"{prefix}No labels found in {cache_path}, can not start training. {HELP_URL}"
 
-        # Read cache
+        # Display IR cache
+        nf, nm, ne, nc, n = ircache.pop("results")  # found, missing, empty, corrupt, total
+        if exists and LOCAL_RANK in {-1, 0}:
+            d = f"Scanning {ircache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
+            tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
+            if ircache["msgs"]:
+                LOGGER.info("\n".join(ircache["msgs"]))  # display warnings
+        assert nf > 0 or not augment, f"{prefix}No labels found in {ircache_path}, can not start training. {HELP_URL}"
+
+        # Read RGB cache
         [cache.pop(k) for k in ("hash", "version", "msgs")]  # remove items
         labels, shapes, self.segments = zip(*cache.values())
         nl = len(np.concatenate(labels, 0))  # number of labels
@@ -651,7 +661,18 @@ class LoadImagesAndLabels(Dataset):
         self.im_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
 
-        # Filter images
+        # Read RGB cache
+        [ircache.pop(k) for k in ("hash", "version", "msgs")]  # remove items
+        irlabels, irshapes, self.irsegments = zip(*ircache.values())
+        nl = len(np.concatenate(irlabels, 0))  # number of labels
+        assert nl > 0 or not augment, f"{prefix}All labels empty in {ircache_path}, can not start training. {HELP_URL}"
+        self.irlabels = list(irlabels)
+        self.irshapes = np.array(irshapes)
+        self.irim_files = list(ircache.keys())  # update
+        self.irlabel_files = img2label_paths(ircache.keys())  # update
+
+
+        # Filter RGB images
         if min_items:
             include = np.array([len(x) >= min_items for x in self.labels]).nonzero()[0].astype(int)
             LOGGER.info(f"{prefix}{n - len(include)}/{n} images filtered from dataset")
@@ -660,6 +681,17 @@ class LoadImagesAndLabels(Dataset):
             self.labels = [self.labels[i] for i in include]
             self.segments = [self.segments[i] for i in include]
             self.shapes = self.shapes[include]  # wh
+
+        # Filter IR images
+        if min_items:
+            include = np.array([len(x) >= min_items for x in self.irlabels]).nonzero()[0].astype(int)
+            LOGGER.info(f"{prefix}{n - len(include)}/{n} images filtered from dataset")
+            self.irim_files = [self.irim_files[i] for i in include]
+            self.irlabel_files = [self.irlabel_files[i] for i in include]
+            self.irlabels = [self.irlabels[i] for i in include]
+            self.irsegments = [self.irsegments[i] for i in include]
+            self.irshapes = self.irshapes[include]  # wh
+
 
         # Create indices
         n = len(self.shapes)  # number of images
@@ -672,7 +704,7 @@ class LoadImagesAndLabels(Dataset):
             # force each rank (i.e. GPU process) to sample the same subset of data on every epoch
             self.indices = self.indices[np.random.RandomState(seed=seed).permutation(n) % WORLD_SIZE == RANK]
 
-        # Update labels
+        # Update RGB labels
         include_class = []  # filter labels to include only these classes (optional)
         self.segments = list(self.segments)
         include_class_array = np.array(include_class).reshape(1, -1)
@@ -685,17 +717,39 @@ class LoadImagesAndLabels(Dataset):
             if single_cls:  # single-class training, merge all classes into 0
                 self.labels[i][:, 0] = 0
 
-        # Rectangular Training
+        # Update IR labels
+        include_class = []  # filter labels to include only these classes (optional)
+        self.irsegments = list(self.irsegments)
+        include_class_array = np.array(include_class).reshape(1, -1)
+        for i, (label, segment) in enumerate(zip(self.irlabels, self.irsegments)):
+            if include_class:
+                j = (label[:, 0:1] == include_class_array).any(1)
+                self.irlabels[i] = label[j]
+                if segment:
+                    self.irsegments[i] = [segment[idx] for idx, elem in enumerate(j) if elem]
+            if single_cls:  # single-class training, merge all classes into 0
+                self.irlabels[i][:, 0] = 0
+
+        # Rectangular Training RGB
         if self.rect:
             # Sort by aspect ratio
             s = self.shapes  # wh
             ar = s[:, 1] / s[:, 0]  # aspect ratio
             irect = ar.argsort()
+            #rgb
             self.im_files = [self.im_files[i] for i in irect]
             self.label_files = [self.label_files[i] for i in irect]
             self.labels = [self.labels[i] for i in irect]
             self.segments = [self.segments[i] for i in irect]
             self.shapes = s[irect]  # wh
+
+            # ir
+            self.irim_files = [self.irim_files[i] for i in irect]
+            self.irlabel_files = [self.irlabel_files[i] for i in irect]
+            self.irlabels = [self.irlabels[i] for i in irect]
+            self.irsegments = [self.irsegments[i] for i in irect]
+            self.irshapes = s[irect]  # wh
+
             ar = ar[irect]
 
             # Set training image shapes
@@ -710,8 +764,10 @@ class LoadImagesAndLabels(Dataset):
 
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(int) * stride
 
-        # Cache images into RAM/disk for faster training
-        if cache_images == "ram" and not self.check_cache_ram(prefix=prefix):
+      
+
+        # Cache images into RAM/disk for faster training RGB
+        if cache_images == "ram" and not self.ircheck_cache_ram(prefix=prefix):
             cache_images = False
         self.ims = [None] * n
         self.npy_files = [Path(f).with_suffix(".npy") for f in self.im_files]
@@ -730,6 +786,46 @@ class LoadImagesAndLabels(Dataset):
                 pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB {cache_images})"
             pbar.close()
 
+        # Cache images into RAM/disk for faster training IR
+        if cache_images == "ram" and not self.ircheck_cache_ram(prefix=prefix):
+            cache_images = False
+        self.irims = [None] * n
+        self.irnpy_files = [Path(f).with_suffix(".npy") for f in self.irim_files]
+        if cache_images:
+            b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
+            self.irim_hw0, self.irim_hw = [None] * n, [None] * n
+            fcn = self.ircache_images_to_disk if cache_images == "disk" else self.irload_image
+            results = ThreadPool(NUM_THREADS).imap(lambda i: (i, fcn(i)), self.indices)
+            pbar = tqdm(results, total=len(self.indices), bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
+            for i, x in pbar:
+                if cache_images == "disk":
+                    b += self.irnpy_files[i].stat().st_size
+                else:  # 'ram'
+                    self.irims[i], self.irim_hw0[i], self.irim_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                    b += self.irims[i].nbytes * WORLD_SIZE
+                pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB {cache_images})"
+            pbar.close()
+
+
+    def ircheck_cache_ram(self, safety_margin=0.1, prefix=""):
+        """Checks if available RAM is sufficient for caching images, adjusting for a safety margin."""
+        b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
+        n = min(self.n, 30)  # extrapolate from 30 random images
+        for _ in range(n):
+            im = cv2.imread(random.choice(self.irim_files))  # sample image
+            ratio = self.img_size / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
+            b += im.nbytes * ratio**2
+        mem_required = b * self.n / n  # GB required to cache dataset into RAM
+        mem = psutil.virtual_memory()
+        cache = mem_required * (1 + safety_margin) < mem.available  # to cache or not to cache, that is the question
+        if not cache:
+            LOGGER.info(
+                f'{prefix}{mem_required / gb:.1f}GB RAM required, '
+                f'{mem.available / gb:.1f}/{mem.total / gb:.1f}GB available, '
+                f"{'caching images ✅' if cache else 'not caching images ⚠️'}"
+            )
+        return cache
+    
     def check_cache_ram(self, safety_margin=0.1, prefix=""):
         """Checks if available RAM is sufficient for caching images, adjusting for a safety margin."""
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
@@ -789,6 +885,46 @@ class LoadImagesAndLabels(Dataset):
             LOGGER.warning(f"{prefix}WARNING ⚠️ Cache directory {path.parent} is not writeable: {e}")  # not writeable
         return x
 
+    def ircache_labels(self, path=Path("./labels.cache"), prefix=""):
+            """Caches dataset labels, verifies images, reads shapes, and tracks dataset integrity."""
+            x = {}  # dict
+            nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
+            desc = f"{prefix}Scanning {path.parent / path.stem}..."
+            with Pool(NUM_THREADS) as pool:
+                pbar = tqdm(
+                    pool.imap(verify_image_label, zip(self.irim_files, self.irlabel_files, repeat(prefix))),
+                    desc=desc,
+                    total=len(self.irim_files),
+                    bar_format=TQDM_BAR_FORMAT,
+                )
+                for im_file, lb, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
+                    nm += nm_f
+                    nf += nf_f
+                    ne += ne_f
+                    nc += nc_f
+                    if im_file:
+                        x[im_file] = [lb, shape, segments]
+                    if msg:
+                        msgs.append(msg)
+                    pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
+
+            pbar.close()
+            if msgs:
+                LOGGER.info("\n".join(msgs))
+            if nf == 0:
+                LOGGER.warning(f"{prefix}WARNING ⚠️ No labels found in {path}. {HELP_URL}")
+            x["hash"] = get_hash(self.irlabel_files + self.irim_files)
+            x["results"] = nf, nm, ne, nc, len(self.irim_files)
+            x["msgs"] = msgs  # warnings
+            x["version"] = self.cache_version  # cache version
+            try:
+                np.save(path, x)  # save cache for next time
+                path.with_suffix(".cache.npy").rename(path)  # remove .npy suffix
+                LOGGER.info(f"{prefix}New cache created: {path}")
+            except Exception as e:
+                LOGGER.warning(f"{prefix}WARNING ⚠️ Cache directory {path.parent} is not writeable: {e}")  # not writeable
+            return x
+
     def __len__(self):
         """Returns the number of images in the dataset."""
         return len(self.im_files)
@@ -803,9 +939,11 @@ class LoadImagesAndLabels(Dataset):
         """Fetches the dataset item at the given index, considering linear, shuffled, or weighted sampling."""
         index = self.indices[index]  # linear, shuffled, or image_weights
 
+
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp["mosaic"]
         if mosaic:
+            
             # Load mosaic
             img, labels = self.load_mosaic(index)
             shapes = None
@@ -901,11 +1039,44 @@ class LoadImagesAndLabels(Dataset):
             return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
         return self.ims[i], self.im_hw0[i], self.im_hw[i]  # im, hw_original, hw_resized
 
+
+    def irload_image(self, i):
+        """
+        Loads an image by index, returning the image, its original dimensions, and resized dimensions.
+
+        Returns (im, original hw, resized hw)
+        """
+        im, f, fn = (
+            self.irims[i],
+            self.irim_files[i],
+            self.irnpy_files[i],
+        )
+        if im is None:  # not cached in RAM
+            if fn.exists():  # load npy
+                im = np.load(fn)
+            else:  # read image
+                im = cv2.imread(f)  # BGR
+                assert im is not None, f"Image Not Found {f}"
+            h0, w0 = im.shape[:2]  # orig hw
+            r = self.img_size / max(h0, w0)  # ratio
+            if r != 1:  # if sizes are not equal
+                interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
+                im = cv2.resize(im, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
+            return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
+        return self.irims[i], self.irim_hw0[i], self.irim_hw[i]  # im, hw_original, hw_resized
+
+
     def cache_images_to_disk(self, i):
         """Saves an image to disk as an *.npy file for quicker loading, identified by index `i`."""
         f = self.npy_files[i]
         if not f.exists():
             np.save(f.as_posix(), cv2.imread(self.im_files[i]))
+
+    def ircache_images_to_disk(self, i):
+        """Saves an image to disk as an *.npy file for quicker loading, identified by index `i`."""
+        f = self.irnpy_files[i]
+        if not f.exists():
+            np.save(f.as_posix(), cv2.imread(self.irim_files[i]))
 
     def load_mosaic(self, index):
         """Loads a 4-image mosaic for YOLOv5, combining 1 selected and 3 random images, with labels and segments."""
@@ -1213,7 +1384,6 @@ def verify_image_label(args):
         nc = 1
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
         return [None, None, None, None, nm, nf, ne, nc, msg]
-
 
 class HUBDatasetStats:
     """
