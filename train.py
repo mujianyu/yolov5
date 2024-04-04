@@ -175,7 +175,7 @@ def train(hyp, opt, device, callbacks):
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
     #获取训练集和验证集的路径
-    train_path, val_path , train_path2 , val_path2 = data_dict["train"], data_dict["val"],data["train2"],data["val2"]
+    train_path, val_path , train_path2 , val_path2 = data_dict["train"], data_dict["val"],data_dict["train2"],data_dict["val2"]
     nc = 1 if single_cls else int(data_dict["nc"])  # number of classes
     names = {0: "item"} if single_cls and len(data_dict["names"]) != 1 else data_dict["names"]  # class names
     is_coco = isinstance(val_path, str) and val_path.endswith("coco/val2017.txt")  # COCO dataset
