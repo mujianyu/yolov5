@@ -1040,14 +1040,28 @@ class LoadImagesAndLabels(Dataset):
         if nl:
             labels_out[:, 1:] = torch.from_numpy(labels)
 
+        # import matplotlib.pyplot as plt  
+        # fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(10, 5)) 
+        # axs[0].imshow(img)  
+        # axs[0].set_title('RGB Image')  
+        # axs[0].axis('off')    
+        # axs[1].imshow(irimg)  
+        # axs[1].set_title('IR Image')  
+        # axs[1].axis('off')     
+        # plt.tight_layout()    
+        # plt.savefig("combined.jpg")  
+
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
         
         #ir  
         irimg = irimg.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-        irimg = np.ascontiguousarray(img)
-        return torch.from_numpy(img), labels_out, self.im_files[index], shapes
+        irimg = np.ascontiguousarray(irimg)
+ 
+
+
+        return torch.from_numpy(img),torch.from_numpy[irimg] ,labels_out, self.im_files[index],self.irim_files[index], shapes
 
     def load_image(self, i):
         """
@@ -1276,17 +1290,17 @@ class LoadImagesAndLabels(Dataset):
     @staticmethod
     def collate_fn(batch):
         """Batches images, labels, paths, and shapes, assigning unique indices to targets in merged label tensor."""
-        im, label, path, shapes = zip(*batch)  # transposed
+        im, im2,label, path,path2, shapes = zip(*batch)  # transposed
         for i, lb in enumerate(label):
             lb[:, 0] = i  # add target image index for build_targets()
-        return torch.stack(im, 0), torch.cat(label, 0), path, shapes
+        return torch.stack(im, 0),torch.stack(im2, 0), torch.cat(label, 0), path,path2, shapes
 
     @staticmethod
     def collate_fn4(batch):
         """Bundles a batch's data by quartering the number of shapes and paths, preparing it for model input."""
-        im, label, path, shapes = zip(*batch)  # transposed
+        im, im2,label, path,path2, shapes = zip(*batch)  # transposed
         n = len(shapes) // 4
-        im4, label4, path4, shapes4 = [], [], path[:n], shapes[:n]
+        im4, im42,label4, path4,path42, shapes4 = [], [], path[:n],path2[:n], shapes[:n]
 
         ho = torch.tensor([[0.0, 0, 0, 1, 0, 0]])
         wo = torch.tensor([[0.0, 0, 1, 0, 0, 0]])
@@ -1297,17 +1311,22 @@ class LoadImagesAndLabels(Dataset):
                 im1 = F.interpolate(im[i].unsqueeze(0).float(), scale_factor=2.0, mode="bilinear", align_corners=False)[
                     0
                 ].type(im[i].type())
+                im2 = F.interpolate(im2[i].unsqueeze(0).float(), scale_factor=2.0, mode="bilinear", align_corners=False)[
+                    0
+                ].type(im2[i].type())
                 lb = label[i]
             else:
                 im1 = torch.cat((torch.cat((im[i], im[i + 1]), 1), torch.cat((im[i + 2], im[i + 3]), 1)), 2)
+                im2 = torch.cat((torch.cat((im2[i], im2[i + 1]), 1), torch.cat((im2[i + 2], im2[i + 3]), 1)), 2)
                 lb = torch.cat((label[i], label[i + 1] + ho, label[i + 2] + wo, label[i + 3] + ho + wo), 0) * s
             im4.append(im1)
+            im42.append(im2)
             label4.append(lb)
 
         for i, lb in enumerate(label4):
             lb[:, 0] = i  # add target image index for build_targets()
 
-        return torch.stack(im4, 0), torch.cat(label4, 0), path4, shapes4
+        return torch.stack(im4, 0),torch.stack(im42, 0), torch.cat(label4, 0), path4,path42, shapes4
 
 
 # Ancillary functions --------------------------------------------------------------------------------------------------
