@@ -18,6 +18,7 @@ class Callbacks:
             "optimizer_step": [],
             "on_before_zero_grad": [],
             "on_train_batch_end": [],
+            "on_train_batch_end2": [],
             "on_train_epoch_end": [],
             "on_val_start": [],
             "on_val_batch_start": [],
