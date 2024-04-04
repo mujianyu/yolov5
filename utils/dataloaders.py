@@ -157,6 +157,7 @@ class SmartDistributedSampler(distributed.DistributedSampler):
 
 def create_dataloader(
     path,
+    path2,
     imgsz,
     batch_size,
     stride,
@@ -180,6 +181,7 @@ def create_dataloader(
     with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
         dataset = LoadImagesAndLabels(
             path,
+            path2,
             imgsz,
             batch_size,
             augment=augment,  # augmentation
@@ -537,6 +539,7 @@ class LoadImagesAndLabels(Dataset):
     def __init__(
         self,
         path,
+        path2,
         img_size=640,
         batch_size=16,
         augment=False,
@@ -552,17 +555,19 @@ class LoadImagesAndLabels(Dataset):
         rank=-1,
         seed=0,
     ):
-        self.img_size = img_size
-        self.augment = augment
-        self.hyp = hyp
-        self.image_weights = image_weights
-        self.rect = False if image_weights else rect
+        self.img_size = img_size #图像的大小
+        self.augment = augment # 是否图像增强
+        self.hyp = hyp # 超参数
+        self.image_weights = image_weights #图像采样
+        self.rect = False if image_weights else rect # 矩形训练
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
-        self.stride = stride
-        self.path = path
-        self.albumentations = Albumentations(size=img_size) if augment else None
+        self.stride = stride #步长
+        self.path = path # rgb图像路径
+        self.path2=path2 # ir图像路径
+        self.albumentations = Albumentations(size=img_size) if augment else None # 图像增强
 
+        #读取rgb文件
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -584,7 +589,30 @@ class LoadImagesAndLabels(Dataset):
         except Exception as e:
             raise Exception(f"{prefix}Error loading data from {path}: {e}\n{HELP_URL}") from e
 
-        # Check cache
+        # 读取ir图像
+        try:
+            f = []  # image files
+            for p in path2 if isinstance(path2, list) else [path2]:
+                p = Path(p)  # os-agnostic
+                if p.is_dir():  # dir
+                    f += glob.glob(str(p / "**" / "*.*"), recursive=True)
+                    # f = list(p.rglob('*.*'))  # pathlib
+                elif p.is_file():  # file
+                    with open(p) as t:
+                        t = t.read().strip().splitlines()
+                        parent = str(p.parent) + os.sep
+                        f += [x.replace("./", parent, 1) if x.startswith("./") else x for x in t]  # to global path
+                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
+                else:
+                    raise FileNotFoundError(f"{prefix}{p} does not exist")
+            self.imir_files = sorted(x.replace("/", os.sep) for x in f if x.split(".")[-1].lower() in IMG_FORMATS)
+            # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
+            assert self.imir_files, f"{prefix}No images found"
+        except Exception as e:
+            raise Exception(f"{prefix}Error loading data from {path}: {e}\n{HELP_URL}") from e
+        
+
+        # Check RGB cache
         self.label_files = img2label_paths(self.im_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix(".cache")
         try:
@@ -594,6 +622,16 @@ class LoadImagesAndLabels(Dataset):
         except Exception:
             cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
 
+        # Check IR cache
+        self.labelir_files = img2label_paths(self.imir_files)  # labels
+        cacheir_path = (p if p.is_file() else Path(self.labelir_files[0]).parent).with_suffix(".cache")
+        try:
+            cacheir, exists = np.load(cacheir_path, allow_pickle=True).item(), True  # load dict
+            assert cacheir["version"] == self.cache_version  # matches current version
+            assert cacheir["hash"] == get_hash(self.label_files + self.im_files)  # identical hash
+        except Exception:
+            cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
+        
         # Display cache
         nf, nm, ne, nc, n = cache.pop("results")  # found, missing, empty, corrupt, total
         if exists and LOCAL_RANK in {-1, 0}:

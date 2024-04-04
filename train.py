@@ -174,7 +174,8 @@ def train(hyp, opt, device, callbacks):
     init_seeds(opt.seed + 1 + RANK, deterministic=True)
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
-    train_path, val_path = data_dict["train"], data_dict["val"]
+    #获取训练集和验证集的路径
+    train_path, val_path , train_path2 , val_path2 = data_dict["train"], data_dict["val"],data["train2"],data["val2"]
     nc = 1 if single_cls else int(data_dict["nc"])  # number of classes
     names = {0: "item"} if single_cls and len(data_dict["names"]) != 1 else data_dict["names"]  # class names
     is_coco = isinstance(val_path, str) and val_path.endswith("coco/val2017.txt")  # COCO dataset
@@ -253,6 +254,7 @@ def train(hyp, opt, device, callbacks):
     # Trainloader
     train_loader, dataset = create_dataloader(
         train_path,
+        train_path2,
         imgsz,
         batch_size // WORLD_SIZE,
         gs,
@@ -277,6 +279,7 @@ def train(hyp, opt, device, callbacks):
     if RANK in {-1, 0}:
         val_loader = create_dataloader(
             val_path,
+            val_path2,
             imgsz,
             batch_size // WORLD_SIZE * 2,
             gs,
@@ -514,8 +517,8 @@ def parse_opt(known=False):
     """Parses command-line arguments for YOLOv5 training, validation, and testing."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", type=str, default=ROOT / "yolov5s.pt", help="initial weights path")
-    parser.add_argument("--cfg", type=str, default="", help="model.yaml path")
-    parser.add_argument("--data", type=str, default=ROOT / "data/coco128.yaml", help="dataset.yaml path")
+    parser.add_argument("--cfg", type=str, default="dualmodel.yaml", help="model.yaml path")
+    parser.add_argument("--data", type=str, default=ROOT / "data.yaml", help="dataset.yaml path")
     parser.add_argument("--hyp", type=str, default=ROOT / "data/hyps/hyp.scratch-low.yaml", help="hyperparameters path")
     parser.add_argument("--epochs", type=int, default=100, help="total training epochs")
     parser.add_argument("--batch-size", type=int, default=16, help="total batch size for all GPUs, -1 for autobatch")

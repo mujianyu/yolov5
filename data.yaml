@@ -1,0 +1,17 @@
+
+
+train: /home/mjy/yolov5/datasets/RGB/train.txt  # 128 images
+val: /home/mjy/yolov5/datasets/RGB/val.txt  # 128 images
+
+#path: /home/mjy/datasets/coco8 # dataset root dir
+# train: /home/mjy/yolov5/datasets/coco8/images/train # train images (relative to 'path') 4 images
+# val: /home/mjy/yolov5/datasets/coco8/images/val # val images (relative to 'path') 4 images
+# test: # test images (optional)
+
+train2: /home/mjy/yolov5/datasets/IR/train.txt  # 128 images
+val2: /home/mjy/yolov5/datasets/IR/val.txt  # 128 images
+
+#test: data/test.txt
+# Classes
+nc: 5  # number of classes
+names: ["van","car","truck","bus","freight car"]
