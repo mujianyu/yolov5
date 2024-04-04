@@ -412,7 +412,7 @@ def train(hyp, opt, device, callbacks):
                     % (f"{epoch}/{epochs - 1}", mem, *mloss, targets.shape[0], imgs.shape[-1])
                 )
                 callbacks.run("on_train_batch_end", model, ni, imgs, targets, paths, list(mloss))
-                callbacks.run("on_train_batch_end", model, ni, imgs2, targets, paths, list(mloss))
+                callbacks.run("on_train_batch_end2", model, ni, imgs2, targets, paths2, list(mloss))
                 
                 if callbacks.stop_training:
                     return
