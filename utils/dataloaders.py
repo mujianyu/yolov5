@@ -195,7 +195,7 @@ def create_dataloader(
             prefix=prefix,
             rank=rank,
         )
-
+    
     batch_size = min(batch_size, len(dataset))
     nd = torch.cuda.device_count()  # number of CUDA devices
     nw = min([os.cpu_count() // max(nd, 1), batch_size if batch_size > 1 else 0, workers])  # number of workers
@@ -1061,7 +1061,7 @@ class LoadImagesAndLabels(Dataset):
  
 
 
-        return torch.from_numpy(img),torch.from_numpy[irimg] ,labels_out, self.im_files[index],self.irim_files[index], shapes
+        return torch.from_numpy(img),torch.from_numpy(irimg) ,labels_out, self.im_files[index],self.irim_files[index], shapes
 
     def load_image(self, i):
         """
