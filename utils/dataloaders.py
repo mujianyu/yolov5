@@ -947,23 +947,33 @@ class LoadImagesAndLabels(Dataset):
 
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp["mosaic"]
+ 
+
         if mosaic:
             
             # Load mosaic
-            img, labels = self.load_mosaic(index)
+            img, irimg,labels = self.load_mosaic(index)
             shapes = None
 
             # MixUp augmentation
             if random.random() < hyp["mixup"]:
-                img, labels = mixup(img, labels, *self.load_mosaic(random.choice(self.indices)))
+                img, irimg,labels = mixup(img,irimg,labels, *self.load_mosaic(random.choice(self.indices)))
 
+            # import matplotlib.pyplot as plt  
+            # plt.imshow(img)
+            # plt.savefig("rgb.jpg")
+            # plt.imshow(irimg)
+            # plt.savefig("ir.jpg")
         else:
             # Load image
             img, (h0, w0), (h, w) = self.load_image(index)
 
+            irimg, _, _ = self.irload_image(index)
+
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
-            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
+            img, irimg,ratio, pad = letterbox(img, irimg,shape, auto=False, scaleup=self.augment)
+
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
             labels = self.labels[index].copy()
@@ -971,8 +981,9 @@ class LoadImagesAndLabels(Dataset):
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
             if self.augment:
-                img, labels = random_perspective(
+                img, irimg,labels = random_perspective(
                     img,
+                    irimg,
                     labels,
                     degrees=hyp["degrees"],
                     translate=hyp["translate"],
@@ -980,6 +991,18 @@ class LoadImagesAndLabels(Dataset):
                     shear=hyp["shear"],
                     perspective=hyp["perspective"],
                 )
+
+                import matplotlib.pyplot as plt  
+                fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(10, 5)) 
+                axs[0].imshow(img)  
+                axs[0].set_title('RGB Image')  
+                axs[0].axis('off')    
+                axs[1].imshow(irimg)  
+                axs[1].set_title('IR Image')  
+                axs[1].axis('off')     
+                plt.tight_layout()    
+                plt.savefig("combined.jpg")  
+                                
 
         nl = len(labels)  # number of labels
         if nl:
@@ -1154,12 +1177,12 @@ class LoadImagesAndLabels(Dataset):
             border=self.mosaic_border,
         )  # border to remove
 
-        import matplotlib.pyplot as plt  
-        plt.imshow(img4)
-        plt.savefig("rgb.jpg")
-        plt.imshow(irimg4)
-        plt.savefig("ir.jpg")
-        print("sss")
+        # import matplotlib.pyplot as plt  
+        # plt.imshow(img4)
+        # plt.savefig("rgb.jpg")
+        # plt.imshow(irimg4)
+        # plt.savefig("ir.jpg")
+  
         return img4, irimg4,labels4
 
     def load_mosaic9(self, index):

@@ -117,8 +117,8 @@ def replicate(im, labels):
 
     return im, labels
 
-
-def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+#rgb and ir
+def letterbox(im,irim, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     """Resizes and pads image to new_shape with stride-multiple constraints, returns resized image, ratio, padding."""
     shape = im.shape[:2]  # current shape [height, width]
     if isinstance(new_shape, int):
@@ -144,11 +144,13 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
     dh /= 2
 
     if shape[::-1] != new_unpad:  # resize
+        irim= cv2.resize(irim, new_unpad, interpolation=cv2.INTER_LINEAR)
         im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
     im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
-    return im, ratio, (dw, dh)
+    irim = cv2.copyMakeBorder(irim, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    return im, irim,ratio, (dw, dh)
 
 
 def random_perspective(
@@ -309,7 +311,7 @@ def cutout(im, labels, p=0.5):
     return labels
 
 
-def mixup(im, labels, im2, labels2):
+def mixup(im,irim, labels, im2,irim2, labels2):
     """
     Applies MixUp augmentation by blending images and labels.
 
@@ -317,8 +319,9 @@ def mixup(im, labels, im2, labels2):
     """
     r = np.random.beta(32.0, 32.0)  # mixup ratio, alpha=beta=32.0
     im = (im * r + im2 * (1 - r)).astype(np.uint8)
+    irim = (irim * r + irim2 * (1 - r)).astype(np.uint8)
     labels = np.concatenate((labels, labels2), 0)
-    return im, labels
+    return im, irim2,labels
 
 
 def box_candidates(box1, box2, wh_thr=2, ar_thr=100, area_thr=0.1, eps=1e-16):
