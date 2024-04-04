@@ -948,7 +948,7 @@ class LoadImagesAndLabels(Dataset):
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp["mosaic"]
  
-
+        mosaic=False
         if mosaic:
             
             # Load mosaic
@@ -992,17 +992,17 @@ class LoadImagesAndLabels(Dataset):
                     perspective=hyp["perspective"],
                 )
 
-                import matplotlib.pyplot as plt  
-                fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(10, 5)) 
-                axs[0].imshow(img)  
-                axs[0].set_title('RGB Image')  
-                axs[0].axis('off')    
-                axs[1].imshow(irimg)  
-                axs[1].set_title('IR Image')  
-                axs[1].axis('off')     
-                plt.tight_layout()    
-                plt.savefig("combined.jpg")  
-                                
+                # import matplotlib.pyplot as plt  
+                # fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(10, 5)) 
+                # axs[0].imshow(img)  
+                # axs[0].set_title('RGB Image')  
+                # axs[0].axis('off')    
+                # axs[1].imshow(irimg)  
+                # axs[1].set_title('IR Image')  
+                # axs[1].axis('off')     
+                # plt.tight_layout()    
+                # plt.savefig("combined.jpg")  
+                         
 
         nl = len(labels)  # number of labels
         if nl:
@@ -1010,21 +1010,25 @@ class LoadImagesAndLabels(Dataset):
 
         if self.augment:
             # Albumentations
+            # 实际上只会进行模糊处理和对比度受限的自适应直方图均衡化以及灰度化 p=0.01
             img, labels = self.albumentations(img, labels)
+        
             nl = len(labels)  # update after albumentations
 
-            # HSV color-space
+            # HSV color-space ir图像不用转
             augment_hsv(img, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
 
             # Flip up-down
             if random.random() < hyp["flipud"]:
                 img = np.flipud(img)
+                irimg=np.flipud(irimg)
                 if nl:
                     labels[:, 2] = 1 - labels[:, 2]
 
             # Flip left-right
             if random.random() < hyp["fliplr"]:
                 img = np.fliplr(img)
+                irimg=np.fliplr(irimg)
                 if nl:
                     labels[:, 1] = 1 - labels[:, 1]
 
@@ -1039,7 +1043,10 @@ class LoadImagesAndLabels(Dataset):
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
-
+        
+        #ir  
+        irimg = irimg.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        irimg = np.ascontiguousarray(img)
         return torch.from_numpy(img), labels_out, self.im_files[index], shapes
 
     def load_image(self, i):
