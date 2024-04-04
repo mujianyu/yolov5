@@ -152,7 +152,7 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
 
 
 def random_perspective(
-    im, targets=(), segments=(), degrees=10, translate=0.1, scale=0.1, shear=10, perspective=0.0, border=(0, 0)
+    im, irim,targets=(), segments=(), degrees=10, translate=0.1, scale=0.1, shear=10, perspective=0.0, border=(0, 0)
 ):
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(-10, 10))
     # targets = [cls, xyxy]
@@ -193,8 +193,10 @@ def random_perspective(
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         if perspective:
             im = cv2.warpPerspective(im, M, dsize=(width, height), borderValue=(114, 114, 114))
+            irim = cv2.warpPerspective(irim, M, dsize=(width, height), borderValue=(114, 114, 114))
         else:  # affine
             im = cv2.warpAffine(im, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
+            irim = cv2.warpAffine(irim, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
 
     # Visualize
     # import matplotlib.pyplot as plt
@@ -238,10 +240,10 @@ def random_perspective(
         targets = targets[i]
         targets[:, 1:5] = new[i]
 
-    return im, targets
+    return im, irim,targets
 
 
-def copy_paste(im, labels, segments, p=0.5):
+def copy_paste(im, irim,labels, segments, p=0.5):
     """
     Applies Copy-Paste augmentation by flipping and merging segments and labels on an image.
 
@@ -251,6 +253,8 @@ def copy_paste(im, labels, segments, p=0.5):
     if p and n:
         h, w, c = im.shape  # height, width, channels
         im_new = np.zeros(im.shape, np.uint8)
+   
+
         for j in random.sample(range(n), k=round(p * n)):
             l, s = labels[j], segments[j]
             box = w - l[3], l[2], w - l[1], l[4]
@@ -259,12 +263,19 @@ def copy_paste(im, labels, segments, p=0.5):
                 labels = np.concatenate((labels, [[l[0], *box]]), 0)
                 segments.append(np.concatenate((w - s[:, 0:1], s[:, 1:2]), 1))
                 cv2.drawContours(im_new, [segments[j].astype(np.int32)], -1, (1, 1, 1), cv2.FILLED)
+               
+
 
         result = cv2.flip(im, 1)  # augment segments (flip left-right)
         i = cv2.flip(im_new, 1).astype(bool)
         im[i] = result[i]  # cv2.imwrite('debug.jpg', im)  # debug
 
-    return im, labels, segments
+        # 反转ir
+        irresult = cv2.flip(irim, 1)  # augment segments (flip left-right)
+        i = cv2.flip(im_new, 1).astype(bool)
+        irim[i] = irresult[i]  # cv2.imwrite('debug.jpg', im)  # debug
+
+    return im, irim,labels, segments
 
 
 def cutout(im, labels, p=0.5):
