@@ -661,7 +661,7 @@ class LoadImagesAndLabels(Dataset):
         self.im_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
 
-        # Read RGB cache
+        # Read IR cache
         [ircache.pop(k) for k in ("hash", "version", "msgs")]  # remove items
         irlabels, irshapes, self.irsegments = zip(*ircache.values())
         nl = len(np.concatenate(irlabels, 0))  # number of labels
