@@ -68,7 +68,15 @@ def autopad(k, p=None, d=1):
     if p is None:
         p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
     return p
+class Concat2(nn.Module):
+    # Concatenate a list of tensors along dimension
+    def __init__(self, dimension=1):
+        super().__init__()
+        self.d = dimension#沿着哪个维度进行拼接
 
+    def forward(self, x):
+        return torch.cat(x, self.d)
+    
 
 class Conv(nn.Module):
     # Standard convolution with args(ch_in, ch_out, kernel, stride, padding, groups, dilation, activation)

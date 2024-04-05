@@ -127,6 +127,7 @@ def run(
     iou_thres=0.6,  # NMS IoU threshold
     max_det=300,  # maximum detections per image
     task="val",  # train, val, test, speed or study
+    task2="val2",
     device="",  # cuda device, i.e. 0 or 0,1,2,3 or cpu
     workers=8,  # max dataloader workers (per RANK in DDP mode)
     single_cls=False,  # treat as single-class dataset
@@ -196,8 +197,11 @@ def run(
         model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
         pad, rect = (0.0, False) if task == "speed" else (0.5, pt)  # square inference for benchmarks
         task = task if task in ("train", "val", "test") else "val"  # path to train/val/test images
+        task2 = task2 if task2 in ('train2', 'val2', 'test') else 'val2'  # path to train/val/test images
+
         dataloader = create_dataloader(
             data[task],
+            data[task2],
             imgsz,
             batch_size,
             stride,
@@ -226,14 +230,18 @@ def run(
         with dt[0]:
             if cuda:
                 im = im.to(device, non_blocking=True)
+                im2 = im2.to(device, non_blocking=True)
                 targets = targets.to(device)
             im = im.half() if half else im.float()  # uint8 to fp16/32
+            im2 = im2.half() if half else im2.float()
             im /= 255  # 0 - 255 to 0.0 - 1.0
-            nb, _, height, width = im.shape  # batch size, channels, height, width
+            im2 /=255
 
+            nb, _, height, width = im.shape  # batch size, channels, height, width
+            nb2, _, height2, width2 = im2.shape  # batch size, channels, height, width
         # Inference
         with dt[1]:
-            preds, train_out = model(im) if compute_loss else (model(im, augment=augment), None)
+            preds, train_out = model(im,im2) if compute_loss else (model(im, augment=augment), None)
 
         # Loss
         if compute_loss:
@@ -285,12 +293,14 @@ def run(
             if save_json:
                 save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
             callbacks.run("on_val_image_end", pred, predn, path, names, im[si])
-
+        # 保存三个batch的val图片
+        # Plot images
         # Plot images
         if plots and batch_i < 3:
-            plot_images(im, targets, paths, save_dir / f"val_batch{batch_i}_labels.jpg", names)  # labels
-            plot_images(im, output_to_target(preds), paths, save_dir / f"val_batch{batch_i}_pred.jpg", names)  # pred
-
+            plot_images(im, targets, paths, save_dir / f"val_batch{batch_i}_RGBlabels.jpg", names)  # labels
+            plot_images(im, output_to_target(preds), paths, save_dir / f"val_batch{batch_i}_RGBpred.jpg", names)  # pred
+            plot_images(im2, targets, paths, save_dir / f"val_batch{batch_i}_IRlabels.jpg", names)  # labels
+            plot_images(im2, output_to_target(preds), paths, save_dir / f"val_batch{batch_i}_IRpred.jpg", names)  # pred
         callbacks.run("on_val_batch_end", batch_i, im, targets, paths, shapes, preds)
 
     # Compute metrics

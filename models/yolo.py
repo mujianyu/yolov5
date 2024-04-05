@@ -26,6 +26,7 @@ if platform.system() != "Windows":
     ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import (
+    Concat2,
     C3,
     C3SPP,
     C3TR,
@@ -150,25 +151,31 @@ class Segment(Detect):
 class BaseModel(nn.Module):
     """YOLOv5 base model."""
 
-    def forward(self, x, profile=False, visualize=False):
+    def forward(self, x,x2, profile=False, visualize=False):
         """Executes a single-scale inference or training pass on the YOLOv5 base model, with options for profiling and
         visualization.
         """
-        return self._forward_once(x, profile, visualize)  # single-scale inference, train
+        return self._forward_once(x,x2, profile, visualize)  # single-scale inference, train
 
-    def _forward_once(self, x, profile=False, visualize=False):
+    def _forward_once(self, x1,x2, profile=False, visualize=False):
         """Performs a forward pass on the YOLOv5 model, enabling profiling and feature visualization options."""
         y, dt = [], []  # outputs
         for m in self.model:
-            if m.f != -1:  # if not from previous layer
-                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-            if profile:
-                self._profile_one_layer(m, x, dt)
-            x = m(x)  # run
-            y.append(x if m.i in self.save else None)  # save output
+            if m.i<10:
+                x1 = m(x1)
+                x2=x2
+                y.append(x1 if m.i in self.save else None)  # save output
+            else :
+                if m.f != -1:  # if not from previous layer
+                    x2 = y[m.f] if isinstance(m.f, int) else [x2 if j == -1 else y[j] for j in m.f]  # from earlier layers
+                if profile:
+                    self._profile_one_layer(m, x2, dt)
+                x2 = m(x2)  # run
+                y.append(x2 if m.i in self.save else None)  # save output
+            
             if visualize:
-                feature_visualization(x, m.type, m.i, save_dir=visualize)
-        return x
+                feature_visualization(x2, m.type, m.i, save_dir=visualize)
+        return x2
 
     def _profile_one_layer(self, m, x, dt):
         """Profiles a single layer's performance by computing GFLOPs, execution time, and parameters."""
@@ -215,7 +222,7 @@ class BaseModel(nn.Module):
 
 class DetectionModel(BaseModel):
     # YOLOv5 detection model
-    def __init__(self, cfg="yolov5s.yaml", ch=3, nc=None, anchors=None):
+    def __init__(self, cfg="yolov5s.yaml", ch=3,ch2=3, nc=None, anchors=None):
         """Initializes YOLOv5 model with configuration file, input channels, number of classes, and custom anchors."""
         super().__init__()
         if isinstance(cfg, dict):
@@ -229,13 +236,15 @@ class DetectionModel(BaseModel):
 
         # Define model
         ch = self.yaml["ch"] = self.yaml.get("ch", ch)  # input channels
+        ch2 = self.yaml['ch2'] = self.yaml.get('ch2', ch2)  # input channels
+
         if nc and nc != self.yaml["nc"]:
             LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml["nc"] = nc  # override yaml value
         if anchors:
             LOGGER.info(f"Overriding model.yaml anchors with anchors={anchors}")
             self.yaml["anchors"] = round(anchors)  # override yaml value
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch],ch2=[ch2])  # model, savelist
         self.names = [str(i) for i in range(self.yaml["nc"])]  # default names
         self.inplace = self.yaml.get("inplace", True)
 
@@ -244,8 +253,10 @@ class DetectionModel(BaseModel):
         if isinstance(m, (Detect, Segment)):
             s = 256  # 2x min stride
             m.inplace = self.inplace
-            forward = lambda x: self.forward(x)[0] if isinstance(m, Segment) else self.forward(x)
-            m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
+            # 创建前向传播
+            forward = lambda x,x2: self.forward(x,x2)[0] if isinstance(m, Segment) else self.forward(x,x2)
+            
+            m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s),torch.zeros(1, ch2, s, s))])  # forward
             check_anchor_order(m)
             m.anchors /= m.stride.view(-1, 1, 1)
             self.stride = m.stride
@@ -256,13 +267,14 @@ class DetectionModel(BaseModel):
         self.info()
         LOGGER.info("")
 
-    def forward(self, x, augment=False, profile=False, visualize=False):
+    # 推理时候augement是默认为False
+    def forward(self, x,x2, augment=False, profile=False, visualize=False):
         """Performs single-scale or augmented inference and may include profiling or visualization."""
-        if augment:
-            return self._forward_augment(x)  # augmented inference, None
-        return self._forward_once(x, profile, visualize)  # single-scale inference, train
+        #if augment:
+        #    return self._forward_augment(x,x2)  # augmented inference, None
+        return self._forward_once(x,x2, profile, visualize)  # single-scale inference, train
 
-    def _forward_augment(self, x):
+    def _forward_augment(self, x,x2):
         """Performs augmented inference across different scales and flips, returning combined detections."""
         img_size = x.shape[-2:]  # height, width
         s = [1, 0.83, 0.67]  # scales
@@ -275,6 +287,7 @@ class DetectionModel(BaseModel):
             yi = self._descale_pred(yi, fi, si, img_size)
             y.append(yi)
         y = self._clip_augmented(y)  # clip augmented tails
+
         return torch.cat(y, 1), None  # augmented inference, train
 
     def _descale_pred(self, p, flips, scale, img_size):
@@ -384,60 +397,119 @@ def parse_model(d, ch,ch2):
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
 
-    layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
-    for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args
+    layers, save, c2,c22 = [], [], ch[-1],ch2[-1]  # layers, savelist, ch out
+
+    for i, (f, n, m, args) in enumerate(d["backbone1"]+d["backbone2"] + d["head"]):  # from, number, module, args
         m = eval(m) if isinstance(m, str) else m  # eval strings
         for j, a in enumerate(args):
             with contextlib.suppress(NameError):
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
 
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in {
-            Conv,
-            GhostConv,
-            Bottleneck,
-            GhostBottleneck,
-            SPP,
-            SPPF,
-            DWConv,
-            MixConv2d,
-            Focus,
-            CrossConv,
-            BottleneckCSP,
-            C3,
-            C3TR,
-            C3SPP,
-            C3Ghost,
-            nn.ConvTranspose2d,
-            DWConvTranspose2d,
-            C3x,
-        }:
-            c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, ch_mul)
+        if i<10:
+            if m in {
+                Conv,
+                GhostConv,
+                Bottleneck,
+                GhostBottleneck,
+                SPP,
+                SPPF,
+                DWConv,
+                MixConv2d,
+                Focus,
+                CrossConv,
+                BottleneckCSP,
+                C3,
+                C3TR,
+                C3SPP,
+                C3Ghost,
+                nn.ConvTranspose2d,
+                DWConvTranspose2d,
+                C3x,
+            }:
+                c1, c2 = ch[f], args[0]
+                if c2 != no:  # if not output
+                    c2 = make_divisible(c2 * gw, ch_mul)
 
-            args = [c1, c2, *args[1:]]
-            if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:
-                args.insert(2, n)  # number of repeats
-                n = 1
-        elif m is nn.BatchNorm2d:
-            args = [ch[f]]
-        elif m is Concat:
-            c2 = sum(ch[x] for x in f)
-        # TODO: channel, gw, gd
-        elif m in {Detect, Segment}:
-            args.append([ch[x] for x in f])
-            if isinstance(args[1], int):  # number of anchors
-                args[1] = [list(range(args[1] * 2))] * len(f)
-            if m is Segment:
-                args[3] = make_divisible(args[3] * gw, ch_mul)
-        elif m is Contract:
-            c2 = ch[f] * args[0] ** 2
-        elif m is Expand:
-            c2 = ch[f] // args[0] ** 2
+                args = [c1, c2, *args[1:]]
+                if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:
+                    args.insert(2, n)  # number of repeats
+                    n = 1
+            elif m is nn.BatchNorm2d:
+                args = [ch[f]]
+            elif m is Concat:
+                c2 = sum(ch[x] for x in f)
+            # TODO: channel, gw, gd
+            elif m in {Detect, Segment}:
+                args.append([ch[x] for x in f])
+                if isinstance(args[1], int):  # number of anchors
+                    args[1] = [list(range(args[1] * 2))] * len(f)
+                if m is Segment:
+                    args[3] = make_divisible(args[3] * gw, ch_mul)
+            elif m is Contract:
+                c2 = ch[f] * args[0] ** 2
+            elif m is Expand:
+                c2 = ch[f] // args[0] ** 2
+            else:
+                c2 = ch[f]
         else:
-            c2 = ch[f]
+            if m in {
+                Conv,
+                GhostConv,
+                Bottleneck,
+                GhostBottleneck,
+                SPP,
+                SPPF,
+                DWConv,
+                MixConv2d,
+                Focus,
+                CrossConv,
+                BottleneckCSP,
+                C3,
+                C3TR,
+                C3SPP,
+                C3Ghost,
+                nn.ConvTranspose2d,
+                DWConvTranspose2d,
+                C3x,
+            }:
+                c12, c22 = ch2[f], args[0]
+                if c22 != no:  # if not output
+                    c22 = make_divisible(c2 * gw, ch_mul)
 
+                args = [c12, c22, *args[1:]]
+                if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:
+                    args.insert(2, n)  # number of repeats
+                    n = 1
+            elif m is nn.BatchNorm2d:
+                args = [ch2[f]]
+            elif m is Concat2:
+                c22=0
+                for x in f:
+                    if x==-1:
+                        c2p=ch2[x]
+                    else:
+                        c2p=ch2[x]
+                    c22=c22+c2p  
+            elif m is Concat:
+                c22 = sum(ch2[x] for x in f)
+            # TODO: channel, gw, gd
+            elif m in {Detect, Segment}:
+                args.append([ch2[x] for x in f])
+                if isinstance(args[1], int):  # number of anchors
+                    args[1] = [list(range(args[1] * 2))] * len(f)
+                if m is Segment:
+                    args[3] = make_divisible(args[3] * gw, ch_mul)
+            elif m is Contract:
+                c22 = ch2[f] * args[0] ** 2
+            elif m is Expand:
+                c22 = ch2[f] // args[0] ** 2
+            else:
+                c22 = ch2[f]
+
+        #拿args里的参数去构建了module m，然后模块的循环次数用参数n控制。
+        # m_: 得到当前层module  如果n>1就创建多个m(当前层结构), 如果n=1就创建一个m
+    
         m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace("__main__.", "")  # module type
         np = sum(x.numel() for x in m_.parameters())  # number params
@@ -448,6 +520,13 @@ def parse_model(d, ch,ch2):
         if i == 0:
             ch = []
         ch.append(c2)
+
+        #back bone1每层输出的大小
+        if i==10:
+            #此时ch==ch2
+            ch2 = [32, 64, 64, 128, 128, 256, 256, 512, 512, 512] #层编号是包含backbone1的
+        ch2.append(c22)
+                
     return nn.Sequential(*layers), sorted(save)
 
 
