@@ -929,11 +929,11 @@ class LoadImagesAndLabels(Dataset):
         """Returns the number of images in the dataset."""
         return len(self.im_files)
 
-    # def __iter__(self):
-    #     self.count = -1
-    #     print('ran dataset iter')
-    #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
-    #     return self
+    def __iter__(self):
+        self.count = -1
+        print('ran dataset iter')
+        #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
+        return self
 
     def __getitem__(self, index):
         """Fetches the dataset item at the given index, considering linear, shuffled, or weighted sampling."""

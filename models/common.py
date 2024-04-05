@@ -832,11 +832,12 @@ class AutoShape(nn.Module):
             autocast = self.amp and (p.device.type != "cpu")  # Automatic Mixed Precision (AMP) inference
             if isinstance(ims, torch.Tensor):  # torch
                 with amp.autocast(autocast):
-                    return self.model(ims.to(p.device).type_as(p), augment=augment)  # inference
+                    return self.model(ims.to(p.device).type_as(p),ims.to(p.device).type_as(p), augment=augment)  # inference
 
             # Pre-process
             n, ims = (len(ims), list(ims)) if isinstance(ims, (list, tuple)) else (1, [ims])  # number, list of images
             shape0, shape1, files = [], [], []  # image and inference shapes, filenames
+
             for i, im in enumerate(ims):
                 f = f"image{i}"  # filename
                 if isinstance(im, (str, Path)):  # filename or uri
@@ -854,14 +855,14 @@ class AutoShape(nn.Module):
                 shape1.append([int(y * g) for y in s])
                 ims[i] = im if im.data.contiguous else np.ascontiguousarray(im)  # update
             shape1 = [make_divisible(x, self.stride) for x in np.array(shape1).max(0)]  # inf shape
-            x = [letterbox(im, shape1, auto=False)[0] for im in ims]  # pad
+            x = [letterbox(im,im, shape1, auto=False)[0] for im in ims]  # pad
             x = np.ascontiguousarray(np.array(x).transpose((0, 3, 1, 2)))  # stack and BHWC to BCHW
             x = torch.from_numpy(x).to(p.device).type_as(p) / 255  # uint8 to fp16/32
 
         with amp.autocast(autocast):
             # Inference
             with dt[1]:
-                y = self.model(x, augment=augment)  # forward
+                y = self.model(x,x, augment=augment)  # forward
 
             # Post-process
             with dt[2]:

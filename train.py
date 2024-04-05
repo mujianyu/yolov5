@@ -196,6 +196,7 @@ def train(hyp, opt, device, callbacks):
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
     amp = check_amp(model)  # check AMP
+    #手动
 
     # Freeze
     freeze = [f"model.{x}." for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
@@ -208,6 +209,7 @@ def train(hyp, opt, device, callbacks):
 
     # Image size
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
+
     imgsz = check_img_size(opt.imgsz, gs, floor=gs * 2)  # verify imgsz is gs-multiple
 
     # Batch size
@@ -357,6 +359,12 @@ def train(hyp, opt, device, callbacks):
             pbar = tqdm(pbar, total=nb, bar_format=TQDM_BAR_FORMAT)  # progress bar
         optimizer.zero_grad()
         for i, (imgs,imgs2, targets, paths,paths2, _) in pbar:  # batch -------------------------------------------------------------
+            # import matplotlib.pyplot as plt  
+            # plt.imshow(np.transpose(imgs[0], (1, 2, 0)) )
+            # plt.savefig("rgb.jpg")
+            # plt.imshow(np.transpose(imgs2[0], (1, 2, 0) ))
+            # plt.savefig("ir.jpg")
+
             callbacks.run("on_train_batch_start")
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0

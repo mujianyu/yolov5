@@ -583,7 +583,7 @@ def check_dataset(data, autodownload=True):
 def check_amp(model):
     """Checks PyTorch AMP functionality for a model, returns True if AMP operates correctly, otherwise False."""
     from models.common import AutoShape, DetectMultiBackend
-
+    # 混合精度
     def amp_allclose(model, im):
         # All close FP32 vs AMP results
         m = AutoShape(model, verbose=False)  # model
@@ -598,6 +598,7 @@ def check_amp(model):
         return False  # AMP only used on CUDA devices
     f = ROOT / "data" / "images" / "bus.jpg"  # image to check
     im = f if f.exists() else "https://ultralytics.com/images/bus.jpg" if check_online() else np.ones((640, 640, 3))
+
     try:
         assert amp_allclose(deepcopy(model), im) or amp_allclose(DetectMultiBackend("yolov5n.pt", device), im)
         LOGGER.info(f"{prefix}checks passed ✅")
